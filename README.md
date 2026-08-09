@@ -1,8 +1,9 @@
-# Aelion World Agent
+# Aelion World Agent (AWA)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+AWA is project made for fun to see what AI Agents build in their free time :)
 
-**Repo:** https://github.com/Aelion-Solutions/world-agent
+---
+
 
 Localhost **eyes + hands** for AI agents in Minecraft: a Paper plugin HTTP API and a thin Cursor MCP bridge.
 
