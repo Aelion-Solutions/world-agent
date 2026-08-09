@@ -6,7 +6,6 @@
 
 Localhost **eyes + hands** for AI agents in Minecraft: a Paper plugin HTTP API and a thin Cursor MCP bridge.
 
-Sense → plan → build → verify — without pasting F3 coordinates.
 
 ## Features
 
@@ -63,14 +62,8 @@ Restart Paper. Console should show:
 World Agent HTTP listening on http://127.0.0.1:8765/v1/
 ```
 
-### 3. Smoke test
 
-```bash
-curl -H "Authorization: Bearer replace-me-with-a-long-random-secret" \
-  http://127.0.0.1:8765/v1/health
-```
-
-### 4. Cursor MCP
+### 3. Cursor MCP
 
 ```bash
 cd mcp
@@ -103,12 +96,6 @@ Region query: `world` + `x1,y1,z1,x2,y2,z2` **or** `x,y,z,radius`.
 
 Schematics use a simple **WA1** text format under `plugins/AelionWorldAgent/schematics/`.
 
-## Optional adapters
-
-Disabled by default. When enabled in `config.yml`, POI adapters can surface data from companion plugins (no hard jar dependency):
-
-- Config-file spawn / link reader (APM-shaped YAML)
-- Live NPC registry via reflection (AelionNPCs, if present)
 
 ## In-game
 
@@ -117,12 +104,6 @@ Disabled by default. When enabled in `config.yml`, POI adapters can surface data
 ```
 
 Permission: `worldagent.admin` (default: op).
-
-## Deploy helper
-
-```powershell
-.\scripts\deploy.ps1 -PluginsDir "C:\path\to\paper\plugins"
-```
 
 ## License
 
