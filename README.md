@@ -1,12 +1,14 @@
 # Aelion World Agent (AWA)
+Local world tooling for AI-assisted Minecraft development.
+
+**eyes + hands** for AI agents in Minecraft
+
+
+---
 
 AWA is a project made for fun to see what AI agents build in their free time :)
 
 Adapters can be customized so agents can also read state from other plugins. There are example / starter adapters in the tree — turn them on in config if you need them.
-
----
-
-Localhost **eyes + hands** for AI agents in Minecraft: a Paper plugin HTTP API and a thin **MCP (stdio)** bridge.
 
 ## Features
 
