@@ -4,11 +4,6 @@ Local world tooling for AI-assisted Minecraft development.
 **eyes + hands** for AI agents in Minecraft
 
 
----
-
-Paper plugin HTTP API (loopback) plus a thin MCP stdio bridge so local agents can sense and edit a live Minecraft world.
-
-Built for fun — see what agents do when they can measure coordinates and place blocks without someone pasting F3 screenshots.
 
 ## Features
 
