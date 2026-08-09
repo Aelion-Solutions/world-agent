@@ -1,23 +1,46 @@
-# Aelion World Agent
+# Aelion World Agent (AWA)
+Local world tooling for AI-assisted Minecraft development.
+
+**eyes + hands** for AI agents in Minecraft
+
+
+---
 
 Paper plugin HTTP API (loopback) plus a thin MCP stdio bridge so local agents can sense and edit a live Minecraft world.
 
 Built for fun — see what agents do when they can measure coordinates and place blocks without someone pasting F3 screenshots.
 
-## Architecture
+## Features
 
-```text
-MCP host  --stdio-->  mcp/  --HTTP Bearer-->  Paper plugin (127.0.0.1:8765)
-                                              sense / act / tx / verify / POIs
-```
+- **Sense** — worlds, players, region scans, slices, heightmaps, entities, POIs
+- **Act** — setblock, fill, box, line, cylinder, batch, clipboard (WA1), allowlisted commands
+- **Transactions** — undo / redo stack for mutations
+- **Verify** — snapshots, diffs, material / emptiness asserts
+- **MCP** — stdio tools wrapping the same HTTP API (any compatible host)
 
-| Piece | Role |
-|-------|------|
-| HTTP API | Sense regions, mutate blocks, undo/redo, snapshots |
-| Transactions | Auto-wrap mutations; failed ops roll back recorded blocks |
-| Snapshots | Capture / diff regions for verification |
-| POI adapters | Optional hooks into companion plugins (off by default) |
-| MCP bridge | `mcp/` — stdio tools over the same HTTP API |
+## Agent / MCP support
+
+| Host | Works? |
+|------|--------|
+| Cursor, Claude Desktop, Claude Code, VS Code Copilot, Windsurf, Cline, Continue | Yes (stdio MCP) |
+| Custom agents using an MCP SDK | Yes |
+| `curl` / scripts (HTTP only) | Yes |
+| Browser / cloud agents (ChatGPT, Claude.ai connectors) | No — local stdio / loopback only |
+
+Full matrix, config keys, and snippets: **[docs/SUPPORT.md](docs/SUPPORT.md)**.
+
+## Security model
+
+Designed for **local agent use only**:
+
+| Guard | Behavior |
+|-------|----------|
+| Bind address | Forced to `127.0.0.1` (non-loopback hosts are rejected) |
+| Auth | `Authorization: Bearer <token>` on every request |
+| Mutations | Require JSON `"confirm": true` (configurable) |
+| Commands | Allowlisted prefixes only (`POST /v1/run`) |
+
+Do **not** expose this port on a public interface.
 
 ## Requirements
 

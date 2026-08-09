@@ -27,3 +27,7 @@ Thumbs.db
 plugin/schematics/*.schem
 plugin/schematics/*.wa1
 snapshots/
+
+
+#Ignore vscode AI rules
+.github\instructions\codacy.instructions.md
