@@ -1,5 +1,9 @@
 # Aelion World Agent
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+**Repo:** https://github.com/Aelion-Solutions/world-agent
+
 Localhost **eyes + hands** for AI agents in Minecraft: a Paper plugin HTTP API and a thin Cursor MCP bridge.
 
 Sense → plan → build → verify — without pasting F3 coordinates.
