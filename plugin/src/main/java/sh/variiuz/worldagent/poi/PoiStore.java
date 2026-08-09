@@ -24,10 +24,6 @@ public final class PoiStore {
         manual.put(poi.id(), poi);
     }
 
-    public boolean removeManual(String id) {
-        return manual.remove(id) != null;
-    }
-
     public JsonArray allJson() {
         List<Poi> all = new ArrayList<>(manual.values());
         all.addAll(plugin.getAdapterRegistry().collectPois());

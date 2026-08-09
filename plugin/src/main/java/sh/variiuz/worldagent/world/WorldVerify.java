@@ -1,9 +1,7 @@
 package sh.variiuz.worldagent.world;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -124,13 +122,11 @@ public final class WorldVerify {
 
         int changed = 0;
         JsonArray samples = new JsonArray();
-        Set<Long> keys = new HashSet<>(before.blocks().keySet());
 
         for (int x = region.minX; x <= region.maxX; x++) {
             for (int y = region.minY; y <= region.maxY; y++) {
                 for (int z = region.minZ; z <= region.maxZ; z++) {
                     long key = pack(x - region.minX, y - region.minY, z - region.minZ);
-                    keys.add(key);
                     Material was = before.blocks().getOrDefault(key, Material.AIR);
                     Material now = region.world.getBlockAt(x, y, z).getType();
                     if (was != now) {

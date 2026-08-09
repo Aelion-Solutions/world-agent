@@ -12,8 +12,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 import com.google.gson.JsonObject;
 
 import net.kyori.adventure.text.Component;
-import sh.variiuz.worldagent.api.ApiException;
 import sh.variiuz.worldagent.api.Json;
+import sh.variiuz.worldagent.util.Worlds;
 
 public final class Markers {
 
@@ -22,10 +22,7 @@ public final class Markers {
 
     public static JsonObject place(JavaPlugin plugin, String worldName, double x, double y, double z,
             String label, int lifetimeTicks) {
-        World world = Bukkit.getWorld(worldName);
-        if (world == null) {
-            throw new ApiException(404, "World not found");
-        }
+        World world = Worlds.requireWorld(worldName);
         Location loc = new Location(world, x, y, z);
         ArmorStand stand = (ArmorStand) world.spawnEntity(loc, EntityType.ARMOR_STAND);
         stand.setVisible(false);

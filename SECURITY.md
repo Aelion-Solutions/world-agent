@@ -1,18 +1,19 @@
 # Security
 
-Aelion World Agent is a **localhost control plane** for a live Minecraft world. Treat the bearer token like a root password for that server process.
+Aelion World Agent is a localhost control plane for a live Minecraft world. Treat `http.token` like a root password for that server process.
 
 ## Expected deployment
 
 - HTTP binds to `127.0.0.1` only
-- Agents (Cursor MCP, scripts) run on the same machine as Paper
-- Token is shared only via local env / `config.yml` — never commit real tokens
+- Agents (MCP, scripts) run on the same machine as Paper
+- Token lives in `config.yml` / local env only — never commit real tokens
+- On first enable, blank or known-placeholder tokens are replaced with a generated secret
 
 ## What we will not support
 
 - Binding to `0.0.0.0` / public interfaces in v1
 - Unauthenticated mutation endpoints
-- Shipping default tokens into production servers
+- Shipping a known default token that works out of the box
 
 ## Reporting
 

@@ -19,6 +19,10 @@ public final class Blocks {
         plugin = pluginInstance;
     }
 
+    public static void clear() {
+        plugin = null;
+    }
+
     public static void set(Block block, Material material) {
         if (block.getType() == material) {
             return;

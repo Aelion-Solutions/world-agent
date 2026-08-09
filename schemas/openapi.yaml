@@ -4,7 +4,8 @@ info:
   version: 0.1.0
   description: >
     Localhost-only HTTP API for agent world sense, act, verify, and undo.
-    Requires Authorization: Bearer <token>. Mutations require confirm=true.
+    Requires Authorization: Bearer <token>. Mutations are bounded by region and
+    per-request block limits; failed transactional mutations roll back recorded blocks.
 servers:
   - url: http://127.0.0.1:8765
 security:

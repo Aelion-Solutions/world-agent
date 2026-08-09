@@ -1,24 +1,26 @@
 # Aelion World Agent — localhost agent API
 http:
   enabled: true
-  # MUST stay loopback in v1
+  # Forced to loopback; non-loopback hosts are rejected
   host: 127.0.0.1
   port: 8765
-  # Change this before use. Requests require: Authorization: Bearer <token>
-  token: "change-me-world-agent"
+  # Blank / known placeholders are replaced with a generated secret on first enable
+  token: ""
 
 limits:
-  # Max blocks scanned / filled / asserted in one request
+  # Max blocks scanned / filled / asserted in one region
   max_volume: 500000
   # Max edge length of a region on any axis
   max_edge: 160
   # Max entities returned
   max_entities: 250
+  # Hard cap on blocks touched by a single mutating request (including batch totals)
+  max_blocks_per_request: 250000
+  # Max ops in POST /v1/batch
+  max_batch_ops: 64
 
 mutations:
   enabled: true
-  # Require JSON body field "confirm": true on mutating endpoints
-  require_confirm: true
 
 commands:
   # Allowlisted console commands for POST /v1/run (prefix match)
@@ -49,5 +51,9 @@ transactions:
   enabled: true
   # Max undo/redo entries kept in memory
   max_stack: 30
-  # Max unique blocks recorded per transaction
-  max_blocks: 750000
+  # Max unique blocks recorded per transaction (also bounded by max_blocks_per_request)
+  max_blocks: 250000
+
+snapshots:
+  # Max in-memory snapshots; oldest are evicted
+  max_entries: 16

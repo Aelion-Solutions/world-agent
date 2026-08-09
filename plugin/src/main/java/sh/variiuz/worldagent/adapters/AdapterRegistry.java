@@ -17,13 +17,13 @@ public final class AdapterRegistry {
 
     public void reload() {
         adapters.clear();
-        if (!plugin.getConfig().getBoolean("adapters.enabled", true)) {
+        if (!plugin.getConfig().getBoolean("adapters.enabled", false)) {
             return;
         }
-        if (plugin.getConfig().getBoolean("adapters.apm.enabled", true)) {
+        if (plugin.getConfig().getBoolean("adapters.apm.enabled", false)) {
             adapters.add(new ApmConfigAdapter(plugin));
         }
-        if (plugin.getConfig().getBoolean("adapters.aelion_npcs.enabled", true)) {
+        if (plugin.getConfig().getBoolean("adapters.aelion_npcs.enabled", false)) {
             adapters.add(new AelionNpcsAdapter(plugin));
         }
         plugin.getLogger().info("POI adapters loaded: " + adapters.stream().map(PoiAdapter::name).toList());

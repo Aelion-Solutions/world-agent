@@ -11,7 +11,7 @@ $JarName = "AelionWorldAgent-0.1.0.jar"
 
 Push-Location $Plugin
 try {
-    mvn -q -DskipTests package
+    mvn -q test package
 } finally {
     Pop-Location
 }

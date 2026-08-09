@@ -18,12 +18,106 @@ import org.bukkit.entity.Player;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
+import sh.variiuz.worldagent.api.ApiException;
 import sh.variiuz.worldagent.api.Json;
 import sh.variiuz.worldagent.util.Region;
+import sh.variiuz.worldagent.util.Worlds;
 
 public final class WorldSense {
 
     private WorldSense() {
+    }
+
+    public static JsonObject players() {
+        JsonArray arr = new JsonArray();
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            Location loc = player.getLocation();
+            JsonObject entry = Json.obj();
+            entry.addProperty("name", player.getName());
+            entry.addProperty("uuid", player.getUniqueId().toString());
+            entry.addProperty("world", loc.getWorld() != null ? loc.getWorld().getName() : "");
+            entry.addProperty("x", loc.getX());
+            entry.addProperty("y", loc.getY());
+            entry.addProperty("z", loc.getZ());
+            entry.addProperty("yaw", loc.getYaw());
+            entry.addProperty("pitch", loc.getPitch());
+            entry.addProperty("block_x", loc.getBlockX());
+            entry.addProperty("block_y", loc.getBlockY());
+            entry.addProperty("block_z", loc.getBlockZ());
+            entry.addProperty("gamemode", player.getGameMode().name());
+            arr.add(entry);
+        }
+        JsonObject out = Json.obj();
+        out.addProperty("count", arr.size());
+        out.add("players", arr);
+        return out;
+    }
+
+    public static JsonObject getBlock(String worldName, int x, int y, int z) {
+        World world = Worlds.requireWorld(worldName);
+        Material mat = world.getBlockAt(x, y, z).getType();
+        JsonObject result = Json.obj();
+        result.addProperty("world", worldName);
+        result.addProperty("x", x);
+        result.addProperty("y", y);
+        result.addProperty("z", z);
+        result.addProperty("material", mat.getKey().toString());
+        result.addProperty("is_air", mat.isAir());
+        result.addProperty("is_solid", mat.isSolid());
+        return result;
+    }
+
+    public static JsonObject heightmap(String worldName, int x1, int z1, int x2, int z2, int yFrom, int yTo) {
+        World world = Worlds.requireWorld(worldName);
+        int minX = Math.min(x1, x2);
+        int maxX = Math.max(x1, x2);
+        int minZ = Math.min(z1, z2);
+        int maxZ = Math.max(z1, z2);
+        int minY = Math.max(world.getMinHeight(), Math.min(yFrom, yTo));
+        int maxY = Math.min(world.getMaxHeight() - 1, Math.max(yFrom, yTo));
+
+        long cells = (long) (maxX - minX + 1) * (maxZ - minZ + 1);
+        if (cells > 16_384) {
+            throw new ApiException(400, "heightmap too large (max 16384 columns)");
+        }
+
+        JsonArray rows = new JsonArray();
+        int highest = Integer.MIN_VALUE;
+        int lowest = Integer.MAX_VALUE;
+        for (int z = minZ; z <= maxZ; z++) {
+            JsonArray row = new JsonArray();
+            for (int x = minX; x <= maxX; x++) {
+                int top = minY - 1;
+                for (int y = maxY; y >= minY; y--) {
+                    if (!world.getBlockAt(x, y, z).getType().isAir()) {
+                        top = y;
+                        break;
+                    }
+                }
+                row.add(top);
+                if (top >= minY) {
+                    highest = Math.max(highest, top);
+                    lowest = Math.min(lowest, top);
+                }
+            }
+            rows.add(row);
+        }
+
+        JsonObject result = Json.obj();
+        result.addProperty("world", worldName);
+        result.addProperty("min_x", minX);
+        result.addProperty("min_z", minZ);
+        result.addProperty("max_x", maxX);
+        result.addProperty("max_z", maxZ);
+        result.addProperty("y_from", minY);
+        result.addProperty("y_to", maxY);
+        result.addProperty("note", "grid[z][x] = highest non-air Y, or y_from-1 if empty");
+        if (highest != Integer.MIN_VALUE) {
+            result.addProperty("highest", highest);
+            result.addProperty("lowest", lowest);
+        }
+        result.add("grid", rows);
+        return result;
     }
 
     public static JsonObject health() {

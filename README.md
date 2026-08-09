@@ -1,97 +1,80 @@
-# Aelion World Agent (AWA)
+# Aelion World Agent
 
-AWA is a project made for fun to see what AI agents build in their free time :)
+Paper plugin HTTP API (loopback) plus a thin MCP stdio bridge so local agents can sense and edit a live Minecraft world.
 
-Adapters can be customized so agents can also read state from other plugins. There are example / starter adapters in the tree — turn them on in config if you need them.
+Built for fun — see what agents do when they can measure coordinates and place blocks without someone pasting F3 screenshots.
 
----
+## Architecture
 
-Localhost **eyes + hands** for AI agents in Minecraft: a Paper plugin HTTP API and a thin **MCP (stdio)** bridge.
+```text
+MCP host  --stdio-->  mcp/  --HTTP Bearer-->  Paper plugin (127.0.0.1:8765)
+                                              sense / act / tx / verify / POIs
+```
 
-## Features
-
-- **Sense** — worlds, players, region scans, slices, heightmaps, entities, POIs
-- **Act** — setblock, fill, box, line, cylinder, batch, clipboard (WA1), allowlisted commands
-- **Transactions** — undo / redo stack for mutations
-- **Verify** — snapshots, diffs, material / emptiness asserts
-- **MCP** — stdio tools wrapping the same HTTP API (any compatible host)
-
-## Agent / MCP support
-
-| Host | Works? |
-|------|--------|
-| Cursor, Claude Desktop, Claude Code, VS Code Copilot, Windsurf, Cline, Continue | Yes (stdio MCP) |
-| Custom agents using an MCP SDK | Yes |
-| `curl` / scripts (HTTP only) | Yes |
-| Browser / cloud agents (ChatGPT, Claude.ai connectors) | No — local stdio / loopback only |
-
-Full matrix, config keys, and snippets: **[docs/SUPPORT.md](docs/SUPPORT.md)**.
-
-## Security model
-
-Designed for **local agent use only**:
-
-| Guard | Behavior |
-|-------|----------|
-| Bind address | Forced to `127.0.0.1` (non-loopback hosts are rejected) |
-| Auth | `Authorization: Bearer <token>` on every request |
-| Mutations | Require JSON `"confirm": true` (configurable) |
-| Commands | Allowlisted prefixes only (`POST /v1/run`) |
-
-Do **not** expose this port on a public interface.
+| Piece | Role |
+|-------|------|
+| HTTP API | Sense regions, mutate blocks, undo/redo, snapshots |
+| Transactions | Auto-wrap mutations; failed ops roll back recorded blocks |
+| Snapshots | Capture / diff regions for verification |
+| POI adapters | Optional hooks into companion plugins (off by default) |
+| MCP bridge | `mcp/` — stdio tools over the same HTTP API |
 
 ## Requirements
 
-- Paper **1.21.x** (built against 1.21.11 API)
-- Java **21**
-- Node.js **20+** (MCP only)
+- Paper 1.21.x (built against 1.21.11 API)
+- Java 21
+- Node.js 20+ (MCP only)
 
-## Quick start
-
-### 1. Build the plugin
+## Installation
 
 ```bash
 cd plugin
-mvn -DskipTests package
+mvn test package
 ```
 
-Copy `plugin/target/AelionWorldAgent-0.1.0.jar` into your Paper `plugins/` folder.
+Copy `plugin/target/AelionWorldAgent-0.1.0.jar` into the Paper `plugins/` folder and start the server.
 
-### 2. Configure
-
-On first boot the plugin writes `plugins/AelionWorldAgent/config.yml`. Set a strong token:
-
-```yaml
-http:
-  host: 127.0.0.1
-  port: 8765
-  token: "replace-me-with-a-long-random-secret"
-```
-
-Restart Paper. Console should show:
+On first enable the plugin writes `plugins/AelionWorldAgent/config.yml` and generates `http.token` if it is blank or a known placeholder. Copy that token into the MCP env (see below). Console should show:
 
 ```text
 World Agent HTTP listening on http://127.0.0.1:8765/v1/
 ```
 
-### 3. MCP
+## Configuration
+
+Important keys in `config.yml`:
+
+| Key | Purpose |
+|-----|---------|
+| `http.host` / `http.port` | Loopback bind (non-loopback hosts are forced to `127.0.0.1`) |
+| `http.token` | Bearer secret (generated if unusable) |
+| `limits.max_volume` / `max_edge` | Region size caps |
+| `limits.max_blocks_per_request` | Per-request mutation budget (default 250000) |
+| `limits.max_batch_ops` | Max ops in `/v1/batch` |
+| `mutations.enabled` | Kill-switch for writes |
+| `commands.allowlist` | Prefixes for `/v1/run` |
+| `transactions.*` | Undo stack size and per-tx block cap |
+| `snapshots.max_entries` | In-memory snapshot LRU size |
+| `adapters.*` | Optional POI sources (disabled by default) |
+
+## MCP usage
 
 ```bash
 cd mcp
-cp .env.example .env   # edit WORLD_AGENT_TOKEN to match the plugin
 npm install
+npm test
 npm run build
 ```
 
-Point your MCP host at `mcp/dist/index.js` (see [docs/mcp.example.json](docs/mcp.example.json) and [docs/mcp.vscode.example.json](docs/mcp.vscode.example.json)):
+Point your MCP host at `mcp/dist/index.js` with:
 
-- `command`: `node`
-- `args`: absolute path to `mcp/dist/index.js`
-- `env.WORLD_AGENT_URL` / `env.WORLD_AGENT_TOKEN`
+- `WORLD_AGENT_URL=http://127.0.0.1:8765`
+- `WORLD_AGENT_TOKEN=<same as http.token>`
 
-Agent workflow notes: [docs/SKILL.md](docs/SKILL.md)
+`WORLD_AGENT_TOKEN` is required; the bridge does not fall back to a shared default.
 
-OpenAPI sketch: [schemas/openapi.yaml](schemas/openapi.yaml)
+Examples: [docs/mcp.example.json](docs/mcp.example.json), [docs/mcp.vscode.example.json](docs/mcp.vscode.example.json).  
+Agent loop notes: [docs/SKILL.md](docs/SKILL.md). Host matrix: [docs/SUPPORT.md](docs/SUPPORT.md).
 
 ## API overview
 
@@ -103,9 +86,11 @@ OpenAPI sketch: [schemas/openapi.yaml](schemas/openapi.yaml)
 | Tx | `GET /v1/tx/list`, `POST /v1/tx/undo`, `/redo`, `/clear` |
 | Verify | `POST /v1/assert/empty`, `/assert/materials`, `/snapshot`, `/diff` |
 
-Region query: `world` + `x1,y1,z1,x2,y2,z2` **or** `x,y,z,radius`.
+Region query: `world` + `x1,y1,z1,x2,y2,z2` or `x,y,z,radius`.  
+Schematics use WA1 text files under `plugins/AelionWorldAgent/schematics/`.  
+OpenAPI sketch: [schemas/openapi.yaml](schemas/openapi.yaml).
 
-Schematics use a simple **WA1** text format under `plugins/AelionWorldAgent/schematics/`.
+Successful mutations that change blocks return `tx_id` for undo. Failed mutations restore recorded before-materials and do not leave an undo entry.
 
 ## In-game
 
@@ -114,6 +99,28 @@ Schematics use a simple **WA1** text format under `plugins/AelionWorldAgent/sche
 ```
 
 Permission: `worldagent.admin` (default: op).
+
+## Development
+
+```bash
+# Plugin
+cd plugin && mvn test package
+
+# MCP
+cd mcp && npm test && npm run build
+```
+
+Unit tests cover coordinate packing, transaction abort rollback bookkeeping, region math, WA1 parsing, command allowlist, tokens, snapshot eviction, and the MCP HTTP client.
+
+## Security
+
+- Binds to loopback only
+- Every request needs `Authorization: Bearer <token>`
+- Mutation size limited by region and per-request block budgets
+- `/v1/run` is prefix-allowlisted
+- Do not expose the port on a public interface
+
+Details: [SECURITY.md](SECURITY.md).
 
 ## License
 

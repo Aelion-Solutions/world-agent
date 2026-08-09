@@ -26,15 +26,14 @@ import sh.variiuz.worldagent.poi.Poi;
 import sh.variiuz.worldagent.snapshot.RegionSnapshot;
 import sh.variiuz.worldagent.util.Region;
 import sh.variiuz.worldagent.util.RegionLimits;
+import sh.variiuz.worldagent.util.Worlds;
 import sh.variiuz.worldagent.world.Markers;
 import sh.variiuz.worldagent.world.WorldAct;
 import sh.variiuz.worldagent.world.WorldBuild;
 import sh.variiuz.worldagent.world.WorldSense;
 import sh.variiuz.worldagent.world.WorldVerify;
 
-/**
- * JDK HttpServer bound to loopback only.
- */
+/** JDK HttpServer bound to loopback only. */
 public final class ApiServer {
 
     private final WorldAgentPlugin plugin;
@@ -83,10 +82,9 @@ public final class ApiServer {
             String path = exchange.getRequestURI().getPath();
             String method = exchange.getRequestMethod().toUpperCase();
 
-            // CORS for local tools
-            Headers h = exchange.getResponseHeaders();
-            h.set("Access-Control-Allow-Origin", "http://127.0.0.1");
-            h.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+            Headers headers = exchange.getResponseHeaders();
+            headers.set("Access-Control-Allow-Origin", "http://127.0.0.1");
+            headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
             if ("OPTIONS".equals(method)) {
                 exchange.sendResponseHeaders(204, -1);
                 exchange.close();
@@ -94,42 +92,152 @@ public final class ApiServer {
             }
 
             switch (path) {
-                case "/v1/health" -> syncGet(exchange, () -> WorldSense.health());
+                case "/v1/health" -> syncGet(exchange, WorldSense::health);
                 case "/v1/worlds" -> syncGet(exchange, () -> {
-                    JsonObject o = Json.obj();
-                    o.add("worlds", WorldSense.worlds());
-                    return o;
+                    JsonObject result = Json.obj();
+                    result.add("worlds", WorldSense.worlds());
+                    return result;
                 });
                 case "/v1/scan" -> handleScan(exchange);
                 case "/v1/slice" -> handleSlice(exchange);
                 case "/v1/entities" -> handleEntities(exchange);
                 case "/v1/pois" -> handlePois(exchange, method);
-                case "/v1/markers" -> handleMarkers(exchange, method);
-                case "/v1/setblock" -> handleSetblock(exchange, method);
-                case "/v1/fill" -> handleFill(exchange, method);
-                case "/v1/clipboard/save" -> handleClipboardSave(exchange, method);
-                case "/v1/clipboard/paste" -> handleClipboardPaste(exchange, method);
-                case "/v1/clipboard/list" -> syncGet(exchange, () -> {
-                    JsonObject o = Json.obj();
-                    o.add("schematics", WorldAct.listSchematics(schematicsDir()));
-                    return o;
+                case "/v1/markers" -> postMutate(exchange, method, body -> Markers.place(
+                        plugin,
+                        body.get("world").getAsString(),
+                        body.get("x").getAsDouble(),
+                        body.get("y").getAsDouble(),
+                        body.get("z").getAsDouble(),
+                        body.has("label") ? body.get("label").getAsString() : "WA",
+                        body.has("lifetime_ticks")
+                                ? body.get("lifetime_ticks").getAsInt()
+                                : plugin.getConfig().getInt("markers.default_lifetime_ticks", 200)));
+                case "/v1/setblock" -> postMutate(exchange, method, body -> WorldAct.setBlock(
+                        body.get("world").getAsString(),
+                        body.get("x").getAsInt(),
+                        body.get("y").getAsInt(),
+                        body.get("z").getAsInt(),
+                        body.get("material").getAsString()));
+                case "/v1/fill" -> postMutate(exchange, method, body -> {
+                    Region region = RegionLimits.parseRegion(plugin.getConfig(), body);
+                    String material = body.get("material").getAsString();
+                    String replace = body.has("replace") ? body.get("replace").getAsString() : null;
+                    return WorldAct.fill(region, material, replace);
                 });
-                case "/v1/run" -> handleRun(exchange, method);
+                case "/v1/clipboard/save" -> postMutate(exchange, method, body -> {
+                    Region region = RegionLimits.parseRegion(plugin.getConfig(), body);
+                    String name = body.has("name") ? body.get("name").getAsString() : "clipboard";
+                    name = name.replaceAll("[^a-zA-Z0-9._-]", "_");
+                    Path file = schematicsDir().resolve(name + ".wa1");
+                    try {
+                        return WorldAct.saveSchematic(region, file);
+                    } catch (IOException e) {
+                        throw new ApiException(500, e.getMessage());
+                    }
+                });
+                case "/v1/clipboard/paste" -> postMutate(exchange, method, body -> {
+                    String name = body.get("name").getAsString().replaceAll("[^a-zA-Z0-9._-]", "_");
+                    Path file = schematicsDir().resolve(name.endsWith(".wa1") ? name : name + ".wa1");
+                    try {
+                        return WorldAct.pasteSchematic(
+                                plugin.getConfig(),
+                                file,
+                                body.get("world").getAsString(),
+                                body.get("x").getAsInt(),
+                                body.get("y").getAsInt(),
+                                body.get("z").getAsInt());
+                    } catch (IOException e) {
+                        throw new ApiException(500, e.getMessage());
+                    }
+                });
+                case "/v1/clipboard/list" -> syncGet(exchange, () -> {
+                    JsonObject result = Json.obj();
+                    result.add("schematics", WorldAct.listSchematics(schematicsDir()));
+                    return result;
+                });
+                case "/v1/run" -> postMutate(exchange, method, body -> {
+                    List<String> allow = plugin.getConfig().getStringList("commands.allowlist");
+                    return WorldAct.runAllowlisted(allow, body.get("command").getAsString());
+                });
                 case "/v1/assert/empty" -> handleAssertEmpty(exchange, method);
-                case "/v1/assert/materials" -> handleAssertMaterials(exchange, method);
-                case "/v1/diff" -> handleDiff(exchange, method);
-                case "/v1/snapshot" -> handleSnapshot(exchange, method);
-                case "/v1/players" -> syncGet(exchange, WorldBuild::players);
+                case "/v1/assert/materials" -> postRead(exchange, method, body -> {
+                    Region region = RegionLimits.parseRegion(plugin.getConfig(), body);
+                    Map<String, Double> min = new HashMap<>();
+                    Map<String, Double> max = new HashMap<>();
+                    if (body.has("min_fractions") && body.get("min_fractions").isJsonObject()) {
+                        body.getAsJsonObject("min_fractions").entrySet()
+                                .forEach(e -> min.put(e.getKey(), e.getValue().getAsDouble()));
+                    }
+                    if (body.has("max_fractions") && body.get("max_fractions").isJsonObject()) {
+                        body.getAsJsonObject("max_fractions").entrySet()
+                                .forEach(e -> max.put(e.getKey(), e.getValue().getAsDouble()));
+                    }
+                    return WorldVerify.assertMaterials(region, min, max);
+                });
+                case "/v1/diff" -> postRead(exchange, method, body -> {
+                    String id = body.get("snapshot_id").getAsString();
+                    RegionSnapshot snap = plugin.getSnapshotStore().get(id);
+                    if (snap == null) {
+                        throw new ApiException(404, "Unknown snapshot_id");
+                    }
+                    World world = Worlds.requireWorld(snap.world());
+                    Region region = new Region(world, snap.minX(), snap.minY(), snap.minZ(),
+                            snap.maxX(), snap.maxY(), snap.maxZ());
+                    return WorldVerify.diff(snap, region);
+                });
+                case "/v1/snapshot" -> postRead(exchange, method, body -> {
+                    Region region = RegionLimits.parseRegion(plugin.getConfig(), body);
+                    RegionSnapshot snap = WorldVerify.capture(region);
+                    String id = plugin.getSnapshotStore().put(snap);
+                    JsonObject result = Json.obj();
+                    result.addProperty("ok", true);
+                    result.addProperty("snapshot_id", id);
+                    result.addProperty("volume", region.volume());
+                    return result;
+                });
+                case "/v1/players" -> syncGet(exchange, WorldSense::players);
                 case "/v1/block" -> handleGetBlock(exchange);
                 case "/v1/heightmap" -> handleHeightmap(exchange);
-                case "/v1/box" -> handleBox(exchange, method);
-                case "/v1/line" -> handleLine(exchange, method);
-                case "/v1/cylinder" -> handleCylinder(exchange, method);
-                case "/v1/batch" -> handleBatch(exchange, method);
+                case "/v1/box" -> postMutate(exchange, method, body -> {
+                    Region region = RegionLimits.parseRegion(plugin.getConfig(), body);
+                    String mode = body.has("mode") ? body.get("mode").getAsString() : "hollow";
+                    return WorldBuild.box(region, body.get("material").getAsString(), mode);
+                });
+                case "/v1/line" -> postMutate(exchange, method, body -> WorldBuild.line(
+                        plugin.getConfig(),
+                        body.get("world").getAsString(),
+                        body.get("x1").getAsInt(),
+                        body.get("y1").getAsInt(),
+                        body.get("z1").getAsInt(),
+                        body.get("x2").getAsInt(),
+                        body.get("y2").getAsInt(),
+                        body.get("z2").getAsInt(),
+                        body.get("material").getAsString()));
+                case "/v1/cylinder" -> postMutate(exchange, method, body -> WorldBuild.cylinder(
+                        plugin.getConfig(),
+                        body.get("world").getAsString(),
+                        body.get("x").getAsInt(),
+                        body.get("y").getAsInt(),
+                        body.get("z").getAsInt(),
+                        body.get("radius").getAsInt(),
+                        body.has("height") ? body.get("height").getAsInt() : 1,
+                        body.get("material").getAsString(),
+                        body.has("hollow") && body.get("hollow").getAsBoolean()));
+                case "/v1/batch" -> postMutate(exchange, method, body -> {
+                    JsonArray ops = body.has("ops") && body.get("ops").isJsonArray()
+                            ? body.getAsJsonArray("ops")
+                            : null;
+                    return WorldBuild.batch(plugin.getConfig(), ops);
+                });
                 case "/v1/tx/list" -> syncGet(exchange, () -> plugin.getTransactions().list());
-                case "/v1/tx/undo" -> handleTxUndo(exchange, method);
-                case "/v1/tx/redo" -> handleTxRedo(exchange, method);
-                case "/v1/tx/clear" -> handleTxClear(exchange, method);
+                case "/v1/tx/undo" -> postRead(exchange, method, body -> {
+                    if (body.has("id") && !body.get("id").getAsString().isBlank()) {
+                        return plugin.getTransactions().undoTo(body.get("id").getAsString());
+                    }
+                    return plugin.getTransactions().undo();
+                });
+                case "/v1/tx/redo" -> postRead(exchange, method, body -> plugin.getTransactions().redo());
+                case "/v1/tx/clear" -> postRead(exchange, method, body -> plugin.getTransactions().clear());
                 default -> writeJson(exchange, 404, error(404, "Not found: " + path));
             }
         } catch (ApiException e) {
@@ -173,19 +281,12 @@ public final class ApiServer {
     private void handleEntities(HttpExchange exchange) throws Exception {
         Map<String, String> q = query(exchange);
         syncGet(exchange, () -> {
-            String worldName = q.get("world");
-            if (worldName == null) {
-                throw new ApiException(400, "Missing world");
-            }
-            World world = Bukkit.getWorld(worldName);
-            if (world == null) {
-                throw new ApiException(404, "World not found");
-            }
+            World world = Worlds.requireWorld(q.get("world"));
             double x = Double.parseDouble(q.getOrDefault("x", "0"));
             double y = Double.parseDouble(q.getOrDefault("y", "64"));
             double z = Double.parseDouble(q.getOrDefault("z", "0"));
             double radius = Double.parseDouble(q.getOrDefault("radius", "32"));
-            int max = plugin.getConfig().getInt("limits.max_entities", 200);
+            int max = plugin.getConfig().getInt("limits.max_entities", 250);
             return WorldSense.entities(world, x, y, z, radius, max);
         });
     }
@@ -193,16 +294,14 @@ public final class ApiServer {
     private void handlePois(HttpExchange exchange, String method) throws Exception {
         if ("GET".equals(method)) {
             syncGet(exchange, () -> {
-                JsonObject o = Json.obj();
-                o.add("pois", plugin.getPoiStore().allJson());
-                return o;
+                JsonObject result = Json.obj();
+                result.add("pois", plugin.getPoiStore().allJson());
+                return result;
             });
             return;
         }
         if ("POST".equals(method)) {
-            JsonObject body = readBody(exchange);
-            RegionLimits.requireConfirm(plugin.getConfig(), body);
-            syncMutate(exchange, () -> {
+            postMutate(exchange, method, body -> {
                 String id = body.has("id") ? body.get("id").getAsString() : java.util.UUID.randomUUID().toString();
                 String name = body.has("name") ? body.get("name").getAsString() : id;
                 String world = body.get("world").getAsString();
@@ -210,117 +309,14 @@ public final class ApiServer {
                 double y = body.get("y").getAsDouble();
                 double z = body.get("z").getAsDouble();
                 plugin.getPoiStore().putManual(new Poi(id, "manual", name, world, x, y, z, Map.of("kind", "manual")));
-                JsonObject o = Json.obj();
-                o.addProperty("ok", true);
-                o.addProperty("id", id);
-                return o;
+                JsonObject result = Json.obj();
+                result.addProperty("ok", true);
+                result.addProperty("id", id);
+                return result;
             });
             return;
         }
         writeJson(exchange, 405, error(405, "Method not allowed"));
-    }
-
-    private void handleMarkers(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        syncMutate(exchange, () -> Markers.place(
-                plugin,
-                body.get("world").getAsString(),
-                body.get("x").getAsDouble(),
-                body.get("y").getAsDouble(),
-                body.get("z").getAsDouble(),
-                body.has("label") ? body.get("label").getAsString() : "WA",
-                body.has("lifetime_ticks")
-                        ? body.get("lifetime_ticks").getAsInt()
-                        : plugin.getConfig().getInt("markers.default_lifetime_ticks", 200)));
-    }
-
-    private void handleSetblock(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        syncMutate(exchange, () -> WorldAct.setBlock(
-                body.get("world").getAsString(),
-                body.get("x").getAsInt(),
-                body.get("y").getAsInt(),
-                body.get("z").getAsInt(),
-                body.get("material").getAsString()));
-    }
-
-    private void handleFill(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        syncMutate(exchange, () -> {
-            Region region = RegionLimits.parseRegion(plugin.getConfig(), body);
-            String material = body.get("material").getAsString();
-            String replace = body.has("replace") ? body.get("replace").getAsString() : null;
-            return WorldAct.fill(region, material, replace);
-        });
-    }
-
-    private void handleClipboardSave(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        syncMutate(exchange, () -> {
-            Region region = RegionLimits.parseRegion(plugin.getConfig(), body);
-            String name = body.has("name") ? body.get("name").getAsString() : "clipboard";
-            name = name.replaceAll("[^a-zA-Z0-9._-]", "_");
-            Path file = schematicsDir().resolve(name + ".wa1");
-            try {
-                return WorldAct.saveSchematic(region, file);
-            } catch (IOException e) {
-                throw new ApiException(500, e.getMessage());
-            }
-        });
-    }
-
-    private void handleClipboardPaste(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        syncMutate(exchange, () -> {
-            String name = body.get("name").getAsString().replaceAll("[^a-zA-Z0-9._-]", "_");
-            Path file = schematicsDir().resolve(name.endsWith(".wa1") ? name : name + ".wa1");
-            try {
-                return WorldAct.pasteSchematic(
-                        file,
-                        body.get("world").getAsString(),
-                        body.get("x").getAsInt(),
-                        body.get("y").getAsInt(),
-                        body.get("z").getAsInt());
-            } catch (IOException e) {
-                throw new ApiException(500, e.getMessage());
-            }
-        });
-    }
-
-    private void handleRun(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        List<String> allow = plugin.getConfig().getStringList("commands.allowlist");
-        syncMutate(exchange, () -> WorldAct.runAllowlisted(allow, body.get("command").getAsString()));
     }
 
     private void handleAssertEmpty(HttpExchange exchange, String method) throws Exception {
@@ -328,73 +324,9 @@ public final class ApiServer {
         syncGet(exchange, () -> WorldVerify.assertEmpty(RegionLimits.parseRegion(plugin.getConfig(), body)));
     }
 
-    private void handleAssertMaterials(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        syncGet(exchange, () -> {
-            Region region = RegionLimits.parseRegion(plugin.getConfig(), body);
-            Map<String, Double> min = new HashMap<>();
-            Map<String, Double> max = new HashMap<>();
-            if (body.has("min_fractions") && body.get("min_fractions").isJsonObject()) {
-                body.getAsJsonObject("min_fractions").entrySet()
-                        .forEach(e -> min.put(e.getKey(), e.getValue().getAsDouble()));
-            }
-            if (body.has("max_fractions") && body.get("max_fractions").isJsonObject()) {
-                body.getAsJsonObject("max_fractions").entrySet()
-                        .forEach(e -> max.put(e.getKey(), e.getValue().getAsDouble()));
-            }
-            return WorldVerify.assertMaterials(region, min, max);
-        });
-    }
-
-    private void handleSnapshot(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        syncGet(exchange, () -> {
-            Region region = RegionLimits.parseRegion(plugin.getConfig(), body);
-            RegionSnapshot snap = WorldVerify.capture(region);
-            String id = plugin.getSnapshotStore().put(snap);
-            JsonObject o = Json.obj();
-            o.addProperty("ok", true);
-            o.addProperty("snapshot_id", id);
-            o.addProperty("volume", region.volume());
-            return o;
-        });
-    }
-
-    private void handleDiff(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        syncGet(exchange, () -> {
-            String id = body.get("snapshot_id").getAsString();
-            RegionSnapshot snap = plugin.getSnapshotStore().get(id);
-            if (snap == null) {
-                throw new ApiException(404, "Unknown snapshot_id");
-            }
-            Region region = new Region(
-                    Bukkit.getWorld(snap.world()),
-                    snap.minX(), snap.minY(), snap.minZ(),
-                    snap.maxX(), snap.maxY(), snap.maxZ());
-            if (region.world == null) {
-                throw new ApiException(404, "World missing for snapshot");
-            }
-            return WorldVerify.diff(snap, region);
-        });
-    }
-
-
     private void handleGetBlock(HttpExchange exchange) throws Exception {
         Map<String, String> q = query(exchange);
-        syncGet(exchange, () -> WorldBuild.getBlock(
+        syncGet(exchange, () -> WorldSense.getBlock(
                 q.get("world"),
                 Integer.parseInt(q.getOrDefault("x", "0")),
                 Integer.parseInt(q.getOrDefault("y", "64")),
@@ -403,7 +335,7 @@ public final class ApiServer {
 
     private void handleHeightmap(HttpExchange exchange) throws Exception {
         Map<String, String> q = query(exchange);
-        syncGet(exchange, () -> WorldBuild.heightmap(
+        syncGet(exchange, () -> WorldSense.heightmap(
                 q.get("world"),
                 Integer.parseInt(q.get("x1")),
                 Integer.parseInt(q.get("z1")),
@@ -413,68 +345,6 @@ public final class ApiServer {
                 Integer.parseInt(q.getOrDefault("y_to", "319"))));
     }
 
-    private void handleBox(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        syncMutate(exchange, () -> {
-            Region region = RegionLimits.parseRegion(plugin.getConfig(), body);
-            String mode = body.has("mode") ? body.get("mode").getAsString() : "hollow";
-            return WorldBuild.box(region, body.get("material").getAsString(), mode);
-        });
-    }
-
-    private void handleLine(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        syncMutate(exchange, () -> WorldBuild.line(
-                body.get("world").getAsString(),
-                body.get("x1").getAsInt(),
-                body.get("y1").getAsInt(),
-                body.get("z1").getAsInt(),
-                body.get("x2").getAsInt(),
-                body.get("y2").getAsInt(),
-                body.get("z2").getAsInt(),
-                body.get("material").getAsString()));
-    }
-
-    private void handleCylinder(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        syncMutate(exchange, () -> WorldBuild.cylinder(
-                body.get("world").getAsString(),
-                body.get("x").getAsInt(),
-                body.get("y").getAsInt(),
-                body.get("z").getAsInt(),
-                body.get("radius").getAsInt(),
-                body.has("height") ? body.get("height").getAsInt() : 1,
-                body.get("material").getAsString(),
-                body.has("hollow") && body.get("hollow").getAsBoolean()));
-    }
-
-    private void handleBatch(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        JsonArray ops = body.has("ops") && body.get("ops").isJsonArray()
-                ? body.getAsJsonArray("ops")
-                : null;
-        syncMutate(exchange, () -> WorldBuild.batch(plugin.getConfig(), ops));
-    }
     private Path schematicsDir() {
         Path dir = plugin.getDataFolder().toPath().resolve("schematics");
         dir.toFile().mkdirs();
@@ -485,23 +355,46 @@ public final class ApiServer {
         JsonObject get() throws Exception;
     }
 
+    private interface BodyHandler {
+        JsonObject handle(JsonObject body) throws Exception;
+    }
+
+    private static void requirePost(String method) {
+        if (!"POST".equals(method)) {
+            throw new ApiException(405, "Method not allowed");
+        }
+    }
+
+    private void postMutate(HttpExchange exchange, String method, BodyHandler handler) throws Exception {
+        requirePost(method);
+        JsonObject body = readBody(exchange);
+        RegionLimits.requireMutationsEnabled(plugin.getConfig());
+        syncMutate(exchange, () -> handler.handle(body));
+    }
+
+    private void postRead(HttpExchange exchange, String method, BodyHandler handler) throws Exception {
+        requirePost(method);
+        JsonObject body = readBody(exchange);
+        syncGet(exchange, () -> handler.handle(body));
+    }
+
     private void syncGet(HttpExchange exchange, SupplierEx supplier) throws Exception {
-        Object[] box = new Object[1];
+        Object[] resultHolder = new Object[1];
         Exception[] err = new Exception[1];
         Bukkit.getScheduler().runTask(plugin, () -> {
             try {
-                box[0] = supplier.get();
+                resultHolder[0] = supplier.get();
             } catch (Exception e) {
                 err[0] = e;
             }
-            synchronized (box) {
-                box.notifyAll();
+            synchronized (resultHolder) {
+                resultHolder.notifyAll();
             }
         });
-        synchronized (box) {
+        synchronized (resultHolder) {
             long deadline = System.currentTimeMillis() + 60_000;
-            while (box[0] == null && err[0] == null && System.currentTimeMillis() < deadline) {
-                box.wait(200);
+            while (resultHolder[0] == null && err[0] == null && System.currentTimeMillis() < deadline) {
+                resultHolder.wait(200);
             }
         }
         if (err[0] instanceof ApiException api) {
@@ -510,10 +403,12 @@ public final class ApiServer {
         if (err[0] != null) {
             throw err[0];
         }
-        if (box[0] == null) {
+        if (resultHolder[0] == null) {
+            plugin.getLogger().warning(
+                    "Main-thread timeout after 60s; the scheduled task may still be running.");
             throw new ApiException(504, "Main-thread timeout");
         }
-        writeJson(exchange, 200, (JsonObject) box[0]);
+        writeJson(exchange, 200, (JsonObject) resultHolder[0]);
     }
 
     private void syncMutate(HttpExchange exchange, SupplierEx supplier) throws Exception {
@@ -534,41 +429,6 @@ public final class ApiServer {
         });
     }
 
-    private void handleTxUndo(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        syncGet(exchange, () -> {
-            if (body.has("id") && !body.get("id").getAsString().isBlank()) {
-                return plugin.getTransactions().undoTo(body.get("id").getAsString());
-            }
-            return plugin.getTransactions().undo();
-        });
-    }
-
-    private void handleTxRedo(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        syncGet(exchange, () -> plugin.getTransactions().redo());
-    }
-
-    private void handleTxClear(HttpExchange exchange, String method) throws Exception {
-        if (!"POST".equals(method)) {
-            writeJson(exchange, 405, error(405, "Method not allowed"));
-            return;
-        }
-        JsonObject body = readBody(exchange);
-        RegionLimits.requireConfirm(plugin.getConfig(), body);
-        syncGet(exchange, () -> plugin.getTransactions().clear());
-    }
-
     private static JsonObject readBody(HttpExchange exchange) throws IOException {
         try (InputStream in = exchange.getRequestBody()) {
             String body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
@@ -576,35 +436,35 @@ public final class ApiServer {
         }
     }
 
+    private static JsonObject queryAsJson(HttpExchange exchange) {
+        JsonObject result = Json.obj();
+        query(exchange).forEach((k, v) -> {
+            if (v.matches("-?\\d+")) {
+                result.addProperty(k, Integer.parseInt(v));
+            } else if (v.matches("-?\\d+\\.\\d+")) {
+                result.addProperty(k, Double.parseDouble(v));
+            } else {
+                result.addProperty(k, v);
+            }
+        });
+        return result;
+    }
+
     private static Map<String, String> query(HttpExchange exchange) {
-        Map<String, String> map = new HashMap<>();
+        Map<String, String> params = new HashMap<>();
         String raw = exchange.getRequestURI().getRawQuery();
         if (raw == null || raw.isBlank()) {
-            return map;
+            return params;
         }
         for (String part : raw.split("&")) {
             int eq = part.indexOf('=');
             if (eq < 0) {
-                map.put(decode(part), "");
+                params.put(decode(part), "");
             } else {
-                map.put(decode(part.substring(0, eq)), decode(part.substring(eq + 1)));
+                params.put(decode(part.substring(0, eq)), decode(part.substring(eq + 1)));
             }
         }
-        return map;
-    }
-
-    private static JsonObject queryAsJson(HttpExchange exchange) {
-        JsonObject o = Json.obj();
-        query(exchange).forEach((k, v) -> {
-            if (v.matches("-?\\d+")) {
-                o.addProperty(k, Integer.parseInt(v));
-            } else if (v.matches("-?\\d+\\.\\d+")) {
-                o.addProperty(k, Double.parseDouble(v));
-            } else {
-                o.addProperty(k, v);
-            }
-        });
-        return o;
+        return params;
     }
 
     private static String decode(String s) {
@@ -612,11 +472,11 @@ public final class ApiServer {
     }
 
     private static JsonObject error(int status, String message) {
-        JsonObject o = Json.obj();
-        o.addProperty("ok", false);
-        o.addProperty("status", status);
-        o.addProperty("error", message);
-        return o;
+        JsonObject result = Json.obj();
+        result.addProperty("ok", false);
+        result.addProperty("status", status);
+        result.addProperty("error", message);
+        return result;
     }
 
     private static void writeJson(HttpExchange exchange, int status, JsonObject body) throws IOException {

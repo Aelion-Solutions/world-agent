@@ -12,6 +12,7 @@ import sh.variiuz.worldagent.poi.PoiStore;
 import sh.variiuz.worldagent.snapshot.SnapshotStore;
 import sh.variiuz.worldagent.tx.Blocks;
 import sh.variiuz.worldagent.tx.TransactionManager;
+import sh.variiuz.worldagent.util.HttpTokens;
 
 public final class WorldAgentPlugin extends JavaPlugin {
 
@@ -24,10 +25,11 @@ public final class WorldAgentPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        ensureHttpToken();
         poiStore = new PoiStore(this);
         transactions = new TransactionManager(this);
         Blocks.init(this);
-        snapshotStore = new SnapshotStore();
+        snapshotStore = new SnapshotStore(getConfig().getInt("snapshots.max_entries", 16));
         adapterRegistry = new AdapterRegistry(this);
         adapterRegistry.reload();
 
@@ -46,19 +48,38 @@ public final class WorldAgentPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         stopApi();
+        Blocks.clear();
         getLogger().info("Aelion World Agent disabled.");
     }
 
     public void reloadAll() {
         reloadConfig();
+        ensureHttpToken();
+        snapshotStore.setMaxEntries(getConfig().getInt("snapshots.max_entries", 16));
         adapterRegistry.reload();
         stopApi();
         startApi();
     }
 
+    private void ensureHttpToken() {
+        String token = getConfig().getString("http.token", "");
+        if (!HttpTokens.isUnusable(token)) {
+            return;
+        }
+        String generated = HttpTokens.generate();
+        getConfig().set("http.token", generated);
+        saveConfig();
+        getLogger().warning("Generated a new http.token in config.yml (previous value was blank or a known placeholder).");
+        getLogger().warning("Copy it into WORLD_AGENT_TOKEN for the MCP bridge. Use /worldagent token to see its length.");
+    }
+
     private void startApi() {
         if (!getConfig().getBoolean("http.enabled", true)) {
             getLogger().warning("HTTP API disabled in config.");
+            return;
+        }
+        if (HttpTokens.isUnusable(getConfig().getString("http.token", ""))) {
+            getLogger().severe("HTTP API not started: http.token is blank or a known placeholder.");
             return;
         }
         try {

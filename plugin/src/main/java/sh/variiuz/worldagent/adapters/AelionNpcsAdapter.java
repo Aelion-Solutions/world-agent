@@ -1,6 +1,5 @@
 package sh.variiuz.worldagent.adapters;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -15,7 +14,8 @@ import sh.variiuz.worldagent.WorldAgentPlugin;
 import sh.variiuz.worldagent.poi.Poi;
 
 /**
- * Soft-reflects AelionNPCs registry when the plugin is present.
+ * Soft-reflects AelionNPCs when the plugin is present
+ * ({@code getInstance().getNPCRegistry().getAll()}).
  */
 public final class AelionNpcsAdapter implements PoiAdapter {
 
@@ -42,22 +42,8 @@ public final class AelionNpcsAdapter implements PoiAdapter {
             Object instance = npcPlugin.getClass().getMethod("getInstance").invoke(null);
             Object registry = instance.getClass().getMethod("getNPCRegistry").invoke(instance);
             Object all = registry.getClass().getMethod("getAll").invoke(registry);
-            if (!(all instanceof Collection<?> collection)) {
-                // try getNpcs()
-                try {
-                    all = registry.getClass().getMethod("getNpcs").invoke(registry);
-                } catch (NoSuchMethodException ignored) {
-                    Method[] methods = registry.getClass().getMethods();
-                    for (Method m : methods) {
-                        if (m.getParameterCount() == 0 && Collection.class.isAssignableFrom(m.getReturnType())) {
-                            all = m.invoke(registry);
-                            break;
-                        }
-                    }
-                }
-            }
             if (!(all instanceof Collection<?> npcs)) {
-                plugin.getLogger().warning("AelionNPCs registry collection not found");
+                plugin.getLogger().warning("AelionNPCs registry.getAll() did not return a Collection");
                 return pois;
             }
 

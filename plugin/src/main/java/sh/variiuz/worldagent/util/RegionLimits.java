@@ -1,6 +1,5 @@
 package sh.variiuz.worldagent.util;
 
-import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.configuration.file.FileConfiguration;
 
@@ -10,18 +9,17 @@ import sh.variiuz.worldagent.api.ApiException;
 
 public final class RegionLimits {
 
+    public static final long DEFAULT_MAX_VOLUME = 500_000L;
+    public static final int DEFAULT_MAX_EDGE = 160;
+    public static final int DEFAULT_MAX_BLOCKS_PER_REQUEST = 250_000;
+    public static final int DEFAULT_MAX_BATCH_OPS = 64;
+
     private RegionLimits() {
     }
 
     public static Region parseRegion(FileConfiguration config, JsonObject body) {
         String worldName = getString(body, "world", null);
-        if (worldName == null) {
-            throw new ApiException(400, "Missing world");
-        }
-        World world = Bukkit.getWorld(worldName);
-        if (world == null) {
-            throw new ApiException(404, "World not found: " + worldName);
-        }
+        World world = Worlds.requireWorld(worldName);
 
         Integer x1 = getInt(body, "x1");
         Integer y1 = getInt(body, "y1");
@@ -30,7 +28,6 @@ public final class RegionLimits {
         Integer y2 = getInt(body, "y2");
         Integer z2 = getInt(body, "z2");
 
-        // Also accept center+radius or min/max aliases
         if (x1 == null && body.has("x") && body.has("radius")) {
             int cx = body.get("x").getAsInt();
             int cy = body.has("y") ? body.get("y").getAsInt() : 64;
@@ -71,8 +68,8 @@ public final class RegionLimits {
     }
 
     public static void validate(FileConfiguration config, Region region) {
-        long maxVolume = config.getLong("limits.max_volume", 200_000L);
-        int maxEdge = config.getInt("limits.max_edge", 128);
+        long maxVolume = config.getLong("limits.max_volume", DEFAULT_MAX_VOLUME);
+        int maxEdge = config.getInt("limits.max_edge", DEFAULT_MAX_EDGE);
         if (region.volume() > maxVolume) {
             throw new ApiException(400, "Region volume " + region.volume() + " exceeds max_volume " + maxVolume);
         }
@@ -86,15 +83,28 @@ public final class RegionLimits {
         }
     }
 
-    public static void requireConfirm(FileConfiguration config, JsonObject body) {
+    /** Validates an AABB that may not yet be a Region (e.g. before world height checks). */
+    public static void validateBounds(FileConfiguration config, World world, int x1, int y1, int z1,
+            int x2, int y2, int z2) {
+        validate(config, new Region(world, x1, y1, z1, x2, y2, z2));
+    }
+
+    public static void ensureRequestBudget(FileConfiguration config, long additionalBlocks) {
+        int max = config.getInt("limits.max_blocks_per_request", DEFAULT_MAX_BLOCKS_PER_REQUEST);
+        if (additionalBlocks > max) {
+            throw new ApiException(400,
+                    "Request would touch " + additionalBlocks + " blocks; max_blocks_per_request is " + max);
+        }
+    }
+
+    public static void requireMutationsEnabled(FileConfiguration config) {
         if (!config.getBoolean("mutations.enabled", true)) {
             throw new ApiException(403, "Mutations disabled");
         }
-        if (config.getBoolean("mutations.require_confirm", true)) {
-            if (!body.has("confirm") || !body.get("confirm").getAsBoolean()) {
-                throw new ApiException(400, "Mutating ops require confirm:true");
-            }
-        }
+    }
+
+    public static int maxBatchOps(FileConfiguration config) {
+        return config.getInt("limits.max_batch_ops", DEFAULT_MAX_BATCH_OPS);
     }
 
     private static String getString(JsonObject o, String key, String def) {

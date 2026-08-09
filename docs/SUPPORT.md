@@ -4,30 +4,30 @@ World Agent has two integration surfaces:
 
 | Surface | What it is | Who can use it |
 |---------|------------|----------------|
-| **HTTP API** | Paper plugin on `127.0.0.1:8765` | Any local HTTP client (`curl`, scripts, custom agents) |
-| **MCP (stdio)** | Node process wrapping that API | Any MCP host that can spawn a local stdio server |
+| HTTP API | Paper plugin on `127.0.0.1:8765` | Any local HTTP client (`curl`, scripts, custom agents) |
+| MCP (stdio) | Node process wrapping that API | Any MCP host that can spawn a local stdio server |
 
-This repo ships **stdio MCP only** (not remote Streamable HTTP / SSE). That matches localhost security: the agent must run on the same machine as Paper.
+This repo ships stdio MCP only (not remote Streamable HTTP / SSE). That matches localhost security: the agent must run on the same machine as Paper.
 
 ## Agents / MCP hosts
 
 | Client | MCP stdio | Config style | Status | Notes |
 |--------|-----------|--------------|--------|-------|
-| **Cursor** | Yes | `mcpServers` in `.cursor/mcp.json` or user MCP settings | Supported | Primary development host |
-| **Claude Desktop** | Yes | `mcpServers` in `claude_desktop_config.json` | Supported | Restart app after config changes |
-| **Claude Code** | Yes | `mcpServers` in `.mcp.json` / user Claude settings | Supported | CLI + project config |
-| **VS Code (GitHub Copilot)** | Yes | `servers` in `.vscode/mcp.json` | Supported | Root key is `servers`, not `mcpServers` |
-| **Windsurf** | Yes | `mcpServers` in Windsurf MCP settings | Supported | Same shape as Cursor / Claude Desktop |
-| **Cline** | Yes | `mcpServers` in Cline MCP settings | Supported | |
-| **Continue** | Yes | MCP section in Continue config | Supported | |
-| **Zed** | Yes | `context_servers` in settings | Community | Config key differs |
-| **JetBrains AI** | Yes | IDE MCP / tools UI | Community | GUI-configured stdio |
-| **Custom agent (MCP SDK)** | Yes | Spawn `node …/mcp/dist/index.js` | Supported | Any host implementing MCP stdio |
-| **HTTP-only scripts** | N/A | Bearer token + JSON | Supported | No MCP required |
-| **ChatGPT / Claude.ai (browser)** | No* | Remote connectors only | Not supported | Cannot spawn local stdio; do not expose World Agent publicly to “fix” this |
-| **Cloud-hosted agent runners** | No* | Remote MCP / HTTP | Not supported* | Same machine requirement; keep API on loopback |
+| Cursor | Yes | `mcpServers` in `.cursor/mcp.json` or user MCP settings | Supported | Primary development host |
+| Claude Desktop | Yes | `mcpServers` in `claude_desktop_config.json` | Supported | Restart app after config changes |
+| Claude Code | Yes | `mcpServers` in `.mcp.json` / user Claude settings | Supported | CLI + project config |
+| VS Code (GitHub Copilot) | Yes | `servers` in `.vscode/mcp.json` | Supported | Root key is `servers`, not `mcpServers` |
+| Windsurf | Yes | `mcpServers` in Windsurf MCP settings | Supported | Same shape as Cursor / Claude Desktop |
+| Cline | Yes | `mcpServers` in Cline MCP settings | Supported | |
+| Continue | Yes | MCP section in Continue config | Supported | |
+| Zed | Yes | `context_servers` in settings | Community | Config key differs |
+| JetBrains AI | Yes | IDE MCP / tools UI | Community | GUI-configured stdio |
+| Custom agent (MCP SDK) | Yes | Spawn `node …/mcp/dist/index.js` | Supported | Any host implementing MCP stdio |
+| HTTP-only scripts | N/A | Bearer token + JSON | Supported | No MCP required |
+| ChatGPT / Claude.ai (browser) | No | Remote connectors only | Not supported | Cannot spawn local stdio |
+| Cloud-hosted agent runners | No | Remote MCP / HTTP | Not supported | Same-machine / loopback requirement |
 
-\* Browser / remote hosts need a **remote** MCP transport. World Agent intentionally stays loopback-only in v1 — do not tunnel it to the public internet.
+Browser / remote hosts would need a remote MCP transport. World Agent stays loopback-only in v1 — do not tunnel it to the public internet.
 
 ## Same-machine requirement
 
@@ -40,18 +40,14 @@ This repo ships **stdio MCP only** (not remote Streamable HTTP / SSE). That matc
                                  127.0.0.1:8765
 ```
 
-Paper, the MCP process, and the agent host should share one machine (or at least reach `127.0.0.1:8765` safely). Opening the port beyond loopback is unsupported.
-
 ## Minimal MCP env
-
-Every stdio host needs:
 
 | Variable | Example |
 |----------|---------|
 | `WORLD_AGENT_URL` | `http://127.0.0.1:8765` |
 | `WORLD_AGENT_TOKEN` | same value as `plugins/AelionWorldAgent/config.yml` → `http.token` |
 
-Command:
+`WORLD_AGENT_TOKEN` is required. The MCP process exits if it is unset.
 
 ```bash
 node /absolute/path/to/world-agent/mcp/dist/index.js
@@ -71,7 +67,7 @@ Root key: `mcpServers` — see [mcp.example.json](mcp.example.json).
       "args": ["/absolute/path/to/world-agent/mcp/dist/index.js"],
       "env": {
         "WORLD_AGENT_URL": "http://127.0.0.1:8765",
-        "WORLD_AGENT_TOKEN": "replace-me-with-a-long-random-secret"
+        "WORLD_AGENT_TOKEN": "paste-http-token-from-config-yml"
       }
     }
   }
@@ -91,7 +87,7 @@ Root key: `servers` (and often an explicit `type`):
       "args": ["/absolute/path/to/world-agent/mcp/dist/index.js"],
       "env": {
         "WORLD_AGENT_URL": "http://127.0.0.1:8765",
-        "WORLD_AGENT_TOKEN": "replace-me-with-a-long-random-secret"
+        "WORLD_AGENT_TOKEN": "paste-http-token-from-config-yml"
       }
     }
   }
@@ -101,7 +97,7 @@ Root key: `servers` (and often an explicit `type`):
 ### HTTP without MCP
 
 ```bash
-curl -H "Authorization: Bearer replace-me-with-a-long-random-secret" \
+curl -H "Authorization: Bearer <http.token>" \
   http://127.0.0.1:8765/v1/health
 ```
 
@@ -119,8 +115,8 @@ curl -H "Authorization: Bearer replace-me-with-a-long-random-secret" \
 
 | Label | Meaning |
 |-------|---------|
-| **Supported** | Expected to work with the stock stdio MCP + documented config |
-| **Community** | Should work via MCP stdio; config UI/keys vary — not CI-tested here |
-| **Not supported** | Wrong transport or would require exposing the localhost API |
+| Supported | Expected to work with the stock stdio MCP + documented config |
+| Community | Should work via MCP stdio; config UI/keys vary — not CI-tested here |
+| Not supported | Wrong transport or would require exposing the localhost API |
 
 Tool/skill workflow for agents: [SKILL.md](SKILL.md).

@@ -24,8 +24,4 @@ public final class Json {
         JsonElement el = JsonParser.parseString(body);
         return el.isJsonObject() ? el.getAsJsonObject() : new JsonObject();
     }
-
-    public static String stringify(Object value) {
-        return GSON.toJson(value);
-    }
 }

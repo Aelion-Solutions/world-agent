@@ -1,24 +1,44 @@
 package sh.variiuz.worldagent.snapshot;
 
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 public final class SnapshotStore {
 
-    private final Map<String, RegionSnapshot> snapshots = new ConcurrentHashMap<>();
+    private final LinkedHashMap<String, RegionSnapshot> snapshots = new LinkedHashMap<>();
+    private int maxEntries;
 
-    public String put(RegionSnapshot snapshot) {
+    public SnapshotStore(int maxEntries) {
+        this.maxEntries = Math.max(1, maxEntries);
+    }
+
+    public synchronized void setMaxEntries(int maxEntries) {
+        this.maxEntries = Math.max(1, maxEntries);
+        evict();
+    }
+
+    public synchronized String put(RegionSnapshot snapshot) {
         String id = UUID.randomUUID().toString();
         snapshots.put(id, snapshot);
+        evict();
         return id;
     }
 
-    public RegionSnapshot get(String id) {
+    public synchronized RegionSnapshot get(String id) {
         return snapshots.get(id);
     }
 
-    public void clear() {
+    public synchronized void clear() {
         snapshots.clear();
+    }
+
+    private void evict() {
+        Iterator<Map.Entry<String, RegionSnapshot>> it = snapshots.entrySet().iterator();
+        while (snapshots.size() > maxEntries && it.hasNext()) {
+            it.next();
+            it.remove();
+        }
     }
 }

@@ -21,7 +21,8 @@ import sh.variiuz.worldagent.api.Json;
 /**
  * In-memory undo/redo for world mutations.
  * Records previous material the first time each block is touched in a transaction.
- * On undo, captures current materials so redo can restore the edit.
+ * Failed mutations call {@link #abort()}, which restores recorded before-materials.
+ * Undo stores Material only (not BlockData / tile entities).
  */
 public final class TransactionManager {
 
@@ -66,23 +67,11 @@ public final class TransactionManager {
         this.plugin = plugin;
     }
 
-    public synchronized boolean isOpen() {
-        return current != null;
-    }
-
-    public synchronized String currentId() {
-        return current == null ? null : current.id;
-    }
-
     public synchronized void begin(String label) {
         if (current != null) {
             throw new ApiException(409, "Transaction already open: " + current.id);
         }
-        if (!plugin.getConfig().getBoolean("transactions.enabled", true)) {
-            current = new OpenTx(label); // still track but commit may no-op stack
-        } else {
-            current = new OpenTx(label);
-        }
+        current = new OpenTx(label);
     }
 
     public synchronized void beginIfNeeded(String label) {
@@ -95,19 +84,26 @@ public final class TransactionManager {
         if (current == null || !plugin.getConfig().getBoolean("transactions.enabled", true)) {
             return;
         }
-        int max = plugin.getConfig().getInt("transactions.max_blocks", 750_000);
+        int maxTx = plugin.getConfig().getInt("transactions.max_blocks", 250_000);
+        int maxReq = plugin.getConfig().getInt("limits.max_blocks_per_request", 250_000);
+        int max = Math.min(maxTx, maxReq);
         if (current.recorded >= max) {
-            throw new ApiException(400, "Transaction exceeded max_blocks " + max);
+            throw new ApiException(400, "Transaction exceeded block budget " + max);
         }
         String world = block.getWorld().getName();
         long key = pack(block.getX(), block.getY(), block.getZ());
-        Map<Long, Material> map = current.before.computeIfAbsent(world, w -> new HashMap<>());
-        if (!map.containsKey(key)) {
-            map.put(key, block.getType());
+        Map<Long, Material> byCoord = current.before.computeIfAbsent(world, w -> new HashMap<>());
+        if (!byCoord.containsKey(key)) {
+            byCoord.put(key, block.getType());
             current.recorded++;
         }
     }
 
+    /**
+     * Commits the open transaction onto the undo stack.
+     * Returns null when nothing was recorded (or transactions are disabled), so callers
+     * do not advertise a non-undoable tx_id.
+     */
     public synchronized String commit() {
         if (current == null) {
             return null;
@@ -115,7 +111,7 @@ public final class TransactionManager {
         OpenTx open = current;
         current = null;
         if (!plugin.getConfig().getBoolean("transactions.enabled", true) || open.recorded == 0) {
-            return open.id;
+            return null;
         }
         Tx tx = new Tx(open.id, open.label, open.startedAt, System.currentTimeMillis(),
                 open.before, open.recorded);
@@ -125,8 +121,17 @@ public final class TransactionManager {
         return tx.id;
     }
 
+    /**
+     * Drops the open transaction and restores every recorded before-material in the world.
+     * Committed undo/redo stacks are left unchanged.
+     */
     public synchronized void abort() {
+        OpenTx open = current;
         current = null;
+        if (open == null || open.recorded == 0) {
+            return;
+        }
+        applyMaterials(open.before);
     }
 
     public synchronized JsonObject undo() {
@@ -186,32 +191,47 @@ public final class TransactionManager {
         for (Tx tx : redo) {
             redoArr.add(summary(tx));
         }
-        JsonObject o = Json.obj();
-        o.addProperty("enabled", plugin.getConfig().getBoolean("transactions.enabled", true));
-        o.addProperty("open", current != null);
+        JsonObject result = Json.obj();
+        result.addProperty("enabled", plugin.getConfig().getBoolean("transactions.enabled", true));
+        result.addProperty("open", current != null);
         if (current != null) {
-            o.addProperty("open_id", current.id);
-            o.addProperty("open_label", current.label);
-            o.addProperty("open_blocks", current.recorded);
+            result.addProperty("open_id", current.id);
+            result.addProperty("open_label", current.label);
+            result.addProperty("open_blocks", current.recorded);
         }
-        o.addProperty("undo_size", undo.size());
-        o.addProperty("redo_size", redo.size());
-        o.add("undo", undoArr);
-        o.add("redo", redoArr);
-        return o;
+        result.addProperty("undo_size", undo.size());
+        result.addProperty("redo_size", redo.size());
+        result.add("undo", undoArr);
+        result.add("redo", redoArr);
+        return result;
     }
 
     public synchronized JsonObject clear() {
+        abort();
         int u = undo.size();
         int r = redo.size();
         undo.clear();
         redo.clear();
-        current = null;
-        JsonObject o = Json.obj();
-        o.addProperty("ok", true);
-        o.addProperty("cleared_undo", u);
-        o.addProperty("cleared_redo", r);
-        return o;
+        JsonObject result = Json.obj();
+        result.addProperty("ok", true);
+        result.addProperty("cleared_undo", u);
+        result.addProperty("cleared_redo", r);
+        return result;
+    }
+
+    /** Package-visible for tests: how many blocks are recorded in the open transaction. */
+    synchronized int openRecorded() {
+        return current == null ? 0 : current.recorded;
+    }
+
+    /** Package-visible for tests: whether a transaction is open. */
+    synchronized boolean hasOpen() {
+        return current != null;
+    }
+
+    /** Package-visible for tests: undo stack size. */
+    synchronized int undoSize() {
+        return undo.size();
     }
 
     private Tx snapshotCurrent(Tx source, String label) {
@@ -222,12 +242,12 @@ public final class TransactionManager {
             if (world == null) {
                 continue;
             }
-            Map<Long, Material> map = new HashMap<>();
+            Map<Long, Material> byCoord = new HashMap<>();
             for (Long key : worldEntry.getValue().keySet()) {
-                map.put(key, world.getBlockAt(unpackX(key), unpackY(key), unpackZ(key)).getType());
+                byCoord.put(key, world.getBlockAt(unpackX(key), unpackY(key), unpackZ(key)).getType());
                 count++;
             }
-            now.put(worldEntry.getKey(), map);
+            now.put(worldEntry.getKey(), byCoord);
         }
         return new Tx(UUID.randomUUID().toString(), label, System.currentTimeMillis(),
                 System.currentTimeMillis(), now, count);
@@ -239,9 +259,9 @@ public final class TransactionManager {
             if (world == null) {
                 continue;
             }
-            for (var e : worldEntry.getValue().entrySet()) {
-                long key = e.getKey();
-                world.getBlockAt(unpackX(key), unpackY(key), unpackZ(key)).setType(e.getValue(), false);
+            for (var entry : worldEntry.getValue().entrySet()) {
+                long key = entry.getKey();
+                world.getBlockAt(unpackX(key), unpackY(key), unpackZ(key)).setType(entry.getValue(), false);
             }
         }
     }
@@ -257,20 +277,20 @@ public final class TransactionManager {
     }
 
     private static JsonObject summary(Tx tx) {
-        JsonObject o = Json.obj();
-        o.addProperty("id", tx.id);
-        o.addProperty("label", tx.label);
-        o.addProperty("blocks", tx.blockCount);
-        o.addProperty("started_at", tx.startedAt);
-        o.addProperty("committed_at", tx.committedAt);
-        return o;
+        JsonObject result = Json.obj();
+        result.addProperty("id", tx.id);
+        result.addProperty("label", tx.label);
+        result.addProperty("blocks", tx.blockCount);
+        result.addProperty("started_at", tx.startedAt);
+        result.addProperty("committed_at", tx.committedAt);
+        return result;
     }
 
     private static JsonObject statusJson(Tx tx, String action) {
-        JsonObject o = summary(tx);
-        o.addProperty("ok", true);
-        o.addProperty("action", action);
-        return o;
+        JsonObject result = summary(tx);
+        result.addProperty("ok", true);
+        result.addProperty("action", action);
+        return result;
     }
 
     static long pack(int x, int y, int z) {
