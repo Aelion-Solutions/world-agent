@@ -1,0 +1,20 @@
+name: AelionWorldAgent
+version: '${project.version}'
+main: sh.variiuz.worldagent.WorldAgentPlugin
+api-version: '1.21'
+author: Aelion Solutions
+description: Localhost HTTP API for agent world sense, build, and verify
+softdepend: [APM, AelionNPCs]
+website: https://github.com/Aelion-Solutions/world-agent
+
+commands:
+  worldagent:
+    description: World agent admin
+    usage: /worldagent <reload|status|token|undo|redo|tx>
+    permission: worldagent.admin
+    aliases: [wa]
+
+permissions:
+  worldagent.admin:
+    description: Administer world agent HTTP API
+    default: op

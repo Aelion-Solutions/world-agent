@@ -1,0 +1,215 @@
+openapi: 3.0.3
+info:
+  title: Aelion World Agent API
+  version: 0.1.0
+  description: >
+    Localhost-only HTTP API for agent world sense, act, verify, and undo.
+    Requires Authorization: Bearer <token>. Mutations require confirm=true.
+servers:
+  - url: http://127.0.0.1:8765
+security:
+  - bearerAuth: []
+paths:
+  /v1/health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+  /v1/worlds:
+    get:
+      summary: List worlds and spawn points
+      responses:
+        "200":
+          description: OK
+  /v1/players:
+    get:
+      summary: Online players with coordinates
+      responses:
+        "200":
+          description: OK
+  /v1/scan:
+    get:
+      summary: Scan region materials
+      parameters:
+        - $ref: "#/components/parameters/world"
+        - $ref: "#/components/parameters/regionQuery"
+      responses:
+        "200":
+          description: OK
+  /v1/slice:
+    get:
+      summary: Top-down material grid
+      parameters:
+        - $ref: "#/components/parameters/world"
+        - $ref: "#/components/parameters/regionQuery"
+      responses:
+        "200":
+          description: OK
+  /v1/heightmap:
+    get:
+      summary: Highest non-air Y per column
+      parameters:
+        - $ref: "#/components/parameters/world"
+      responses:
+        "200":
+          description: OK
+  /v1/block:
+    get:
+      summary: Single block material
+      parameters:
+        - $ref: "#/components/parameters/world"
+      responses:
+        "200":
+          description: OK
+  /v1/entities:
+    get:
+      summary: Nearby entities
+      parameters:
+        - $ref: "#/components/parameters/world"
+      responses:
+        "200":
+          description: OK
+  /v1/pois:
+    get:
+      summary: Points of interest
+      responses:
+        "200":
+          description: OK
+    post:
+      summary: Create manual POI
+      responses:
+        "200":
+          description: OK
+  /v1/markers:
+    post:
+      summary: Temporary armor-stand marker
+      responses:
+        "200":
+          description: OK
+  /v1/setblock:
+    post:
+      summary: Set one block
+      responses:
+        "200":
+          description: OK
+  /v1/fill:
+    post:
+      summary: Fill region
+      responses:
+        "200":
+          description: OK
+  /v1/box:
+    post:
+      summary: Solid or hollow box
+      responses:
+        "200":
+          description: OK
+  /v1/line:
+    post:
+      summary: Line between two points
+      responses:
+        "200":
+          description: OK
+  /v1/cylinder:
+    post:
+      summary: Cylinder / hollow cylinder
+      responses:
+        "200":
+          description: OK
+  /v1/batch:
+    post:
+      summary: Run multiple mutation ops in one request
+      responses:
+        "200":
+          description: OK
+  /v1/clipboard/save:
+    post:
+      summary: Save WA1 schematic
+      responses:
+        "200":
+          description: OK
+  /v1/clipboard/paste:
+    post:
+      summary: Paste WA1 schematic
+      responses:
+        "200":
+          description: OK
+  /v1/clipboard/list:
+    get:
+      summary: List schematics
+      responses:
+        "200":
+          description: OK
+  /v1/run:
+    post:
+      summary: Allowlisted console command
+      responses:
+        "200":
+          description: OK
+  /v1/tx/list:
+    get:
+      summary: List undo/redo transactions
+      responses:
+        "200":
+          description: OK
+  /v1/tx/undo:
+    post:
+      summary: Undo last transaction
+      responses:
+        "200":
+          description: OK
+  /v1/tx/redo:
+    post:
+      summary: Redo last undone transaction
+      responses:
+        "200":
+          description: OK
+  /v1/tx/clear:
+    post:
+      summary: Clear transaction stacks
+      responses:
+        "200":
+          description: OK
+  /v1/assert/empty:
+    post:
+      summary: Assert air region
+      responses:
+        "200":
+          description: OK
+  /v1/assert/materials:
+    post:
+      summary: Assert material fractions
+      responses:
+        "200":
+          description: OK
+  /v1/snapshot:
+    post:
+      summary: Capture region snapshot
+      responses:
+        "200":
+          description: OK
+  /v1/diff:
+    post:
+      summary: Diff against snapshot
+      responses:
+        "200":
+          description: OK
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    world:
+      name: world
+      in: query
+      required: true
+      schema:
+        type: string
+    regionQuery:
+      name: region
+      in: query
+      description: Use x1,y1,z1,x2,y2,z2 or x,y,z,radius
+      schema:
+        type: string

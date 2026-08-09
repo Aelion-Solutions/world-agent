@@ -1,0 +1,53 @@
+# Aelion World Agent — localhost agent API
+http:
+  enabled: true
+  # MUST stay loopback in v1
+  host: 127.0.0.1
+  port: 8765
+  # Change this before use. Requests require: Authorization: Bearer <token>
+  token: "change-me-world-agent"
+
+limits:
+  # Max blocks scanned / filled / asserted in one request
+  max_volume: 500000
+  # Max edge length of a region on any axis
+  max_edge: 160
+  # Max entities returned
+  max_entities: 250
+
+mutations:
+  enabled: true
+  # Require JSON body field "confirm": true on mutating endpoints
+  require_confirm: true
+
+commands:
+  # Allowlisted console commands for POST /v1/run (prefix match)
+  allowlist:
+    - "tp "
+    - "teleport "
+    - "say "
+    - "time "
+    - "weather "
+    - "gamemode "
+    - "worldagent "
+
+adapters:
+  # Optional POI sources from companion plugins (off by default)
+  enabled: false
+  apm:
+    enabled: false
+    # Relative to server root
+    config_path: "plugins/APM/config.yml"
+  aelion_npcs:
+    enabled: false
+
+markers:
+  # Despawn temporary markers after N ticks (20 = 1s)
+  default_lifetime_ticks: 200
+
+transactions:
+  enabled: true
+  # Max undo/redo entries kept in memory
+  max_stack: 30
+  # Max unique blocks recorded per transaction
+  max_blocks: 750000

@@ -1,0 +1,29 @@
+# Build
+target/
+mcp/node_modules/
+mcp/dist/
+*.class
+*.jar
+!plugin/schematics/.gitkeep
+
+# Local / secrets
+.env
+.env.*
+!.env.example
+!mcp/.env.example
+mcp/.env
+*.local.*
+.city-anchor.json
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+
+# Runtime data copied from servers
+plugin/schematics/*.schem
+plugin/schematics/*.wa1
+snapshots/
