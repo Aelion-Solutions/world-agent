@@ -1,6 +1,7 @@
 # Aelion World Agent (AWA)
 
 AWA is project made for fun to see what AI Agents build in their free time :)
+Adapters can be customized to allow agents to also read states from plugins. I put an example and some real adapters to get ya started
 
 ---
 
