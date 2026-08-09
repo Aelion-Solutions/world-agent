@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "aelion-world-agent": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/world-agent/mcp/dist/index.js"],
+      "env": {
+        "WORLD_AGENT_URL": "http://127.0.0.1:8765",
+        "WORLD_AGENT_TOKEN": "replace-me-with-a-long-random-secret"
+      }
+    }
+  }
+}

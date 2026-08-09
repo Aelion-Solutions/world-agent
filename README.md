@@ -1,13 +1,12 @@
 # Aelion World Agent (AWA)
 
-AWA is project made for fun to see what AI Agents build in their free time :)
-Adapters can be customized to allow agents to also read states from plugins. I put an example and some real adapters to get ya started
+AWA is a project made for fun to see what AI agents build in their free time :)
+
+Adapters can be customized so agents can also read state from other plugins. There are example / starter adapters in the tree — turn them on in config if you need them.
 
 ---
 
-
-Localhost **eyes + hands** for AI agents in Minecraft: a Paper plugin HTTP API and a thin Cursor MCP bridge.
-
+Localhost **eyes + hands** for AI agents in Minecraft: a Paper plugin HTTP API and a thin **MCP (stdio)** bridge.
 
 ## Features
 
@@ -15,7 +14,18 @@ Localhost **eyes + hands** for AI agents in Minecraft: a Paper plugin HTTP API a
 - **Act** — setblock, fill, box, line, cylinder, batch, clipboard (WA1), allowlisted commands
 - **Transactions** — undo / redo stack for mutations
 - **Verify** — snapshots, diffs, material / emptiness asserts
-- **MCP** — Cursor tools wrapping the same HTTP API
+- **MCP** — stdio tools wrapping the same HTTP API (any compatible host)
+
+## Agent / MCP support
+
+| Host | Works? |
+|------|--------|
+| Cursor, Claude Desktop, Claude Code, VS Code Copilot, Windsurf, Cline, Continue | Yes (stdio MCP) |
+| Custom agents using an MCP SDK | Yes |
+| `curl` / scripts (HTTP only) | Yes |
+| Browser / cloud agents (ChatGPT, Claude.ai connectors) | No — local stdio / loopback only |
+
+Full matrix, config keys, and snippets: **[docs/SUPPORT.md](docs/SUPPORT.md)**.
 
 ## Security model
 
@@ -64,8 +74,7 @@ Restart Paper. Console should show:
 World Agent HTTP listening on http://127.0.0.1:8765/v1/
 ```
 
-
-### 3. Cursor MCP
+### 3. MCP
 
 ```bash
 cd mcp
@@ -74,7 +83,7 @@ npm install
 npm run build
 ```
 
-Add a server entry to your Cursor MCP config (see [docs/mcp.example.json](docs/mcp.example.json)):
+Point your MCP host at `mcp/dist/index.js` (see [docs/mcp.example.json](docs/mcp.example.json) and [docs/mcp.vscode.example.json](docs/mcp.vscode.example.json)):
 
 - `command`: `node`
 - `args`: absolute path to `mcp/dist/index.js`
@@ -97,7 +106,6 @@ OpenAPI sketch: [schemas/openapi.yaml](schemas/openapi.yaml)
 Region query: `world` + `x1,y1,z1,x2,y2,z2` **or** `x,y,z,radius`.
 
 Schematics use a simple **WA1** text format under `plugins/AelionWorldAgent/schematics/`.
-
 
 ## In-game
 
